@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 import QuantLib as ql
 import yfinance as yf
-from math import sqrt, exp
 from datetime import datetime 
 import matplotlib.pyplot as plt
 from scipy.optimize import basinhopping
@@ -43,13 +42,14 @@ class Heston():
         self.clean['Fecha'] = self.clean['Fecha'].apply(str)
         self.clean['Fecha'] = self.clean['Fecha'].apply(lambda date_str: f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}")
 
-    def get_from_user(self, risk_free_rate: float, ticker: str = '^MXX'):
+    def get_from_market(self, ticker: str = '^MXX'):
+        # Manual Input Possible
         self.ticker = ticker
-
-    def get_from_market(self):
+        
         # Get from the market
         end_date = self.clean['Fecha'].unique()
         self.current_date = pd.to_datetime(end_date)
+        
         end_date = pd.to_datetime(end_date) + timedelta(days = 1)
         start_date = pd.to_datetime(end_date) - timedelta(days = 365)
 
@@ -57,12 +57,12 @@ class Heston():
         start_date = start_date[0]
 
         stock = yf.download(self.ticker,start = start_date, end = end_date, progress = False)['Adj Close']
-        stock_variance = stock.pct_change().var
+        stock_std = stock.pct_change().std()
         spot_price = stock.iloc[-1]
 
         self.spot_price = spot_price
-        self.yearly_historical_volatility = stock_variance
-
+        self.yearly_historical_volatility = stock_std
+        
         # From Data
         self.strike_price = self.clean['Serie'].values
         self.risk_free_rate = self.clean['Tasa de Interes'].values
@@ -71,22 +71,47 @@ class Heston():
         self.option_type = self.clean['Call o Put'].apply(lambda call: True if call == 1 else False)
     
     def optimize_params(self):
-        # Initial guess for the parameters based on historical volatility
-        initial_params = [self.yearly_historical_volatility ** 2, 2.0, 0.04, 0.1, -0.7]  # Initial parameter guess
+        # Optimized parameters
+        optimized_params = []
 
         # Define bounds for the parameters
         bounds = [(0, 1), (0.1, 15), (0, 1), (0.1, 1), (-1, 1)]
 
-        # The basinhopping algorithm
-        minimizer_kwargs = {"method": "L-BFGS-B", "bounds": bounds}
-        result = basinhopping(objective_function, initial_params, minimizer_kwargs=minimizer_kwargs, niter=10)
+        # Initial guess for the parameters based on historical volatility
+        initial_params = [self.yearly_historical_volatility ** 2, 2.0, 0.04, 0.1, -0.7]  # Initial parameter guess
+        
+        for market_price, strike, maturity, risk_free_rate, option_type in zip(self.market_price, self.strike_price, self.maturities, self.risk_free_rate, self.option_type):
+            # The basinhopping algorithm
+            minimizer_kwargs = {"method": "L-BFGS-B", "bounds": bounds}
 
-        # Results
-        optimized_params = result.x
-        minimum_error = result.fun
+            # Objective function adapted for the single derivative
+            def objective_function(params, market_price, strike, maturity, risk_free_rate, option_type):
+                return objective_function_single_derivative(params, market_price, strike, maturity, risk_free_rate, option_type)
 
-        print("Optimized parameters:", optimized_params)
-        print("Minimum error:", minimum_error)
+            result = basinhopping(objective_function, initial_params, minimizer_kwargs=minimizer_kwargs, niter=10)
+
+            # Results
+            optimized_params = result.x
+            optimized_params.append(optimized_params)
+            minimum_error = result.fun
+            
+            print('CME: ',minimum_error)
+        
+        self.optimized = optimized_params
+    
+    def reporting(self):
+        pass
+
+    def sensibility(self):
+        pass
+
+def objective_function_single_derivative(self,params, market_price, strike, maturity, risk_free_rate, option_type):
+        v0, kappa, theta, epsilon, rho = params
+
+        model_price = HestonPriceFunction(strike, self.spot_price, np.sqrt(v0), risk_free_rate, kappa,
+                                        epsilon, rho, theta, self.current_date, maturity, option_type)
+        error = (model_price - market_price) ** 2
+        return error
 
 def HestonPriceFunction(strike_price: float, spot_price: float, yearly_historical_volatility: float, 
                         risk_free_rate: float, kappa: float, epsilon: float, rho: float,
@@ -134,16 +159,3 @@ def HestonPriceFunction(strike_price: float, spot_price: float, yearly_historica
     # Calculating the option price
     price = option.NPV()
     return price
-
-
-def objective_function(self,params):
-        v0, kappa, theta, epsilon, rho = params
-        errors = []
-
-        for market_price, strike, maturity, risk_free_rate, option_type in zip(self.market_price, self.strike_price, self.maturities, self.risk_free_rate, self.option_type):
-            model_price = HestonPriceFunction(strike, self.spot_price, np.sqrt(v0), risk_free_rate, kappa,
-                                            epsilon, rho, theta, self.current_date, maturity, option_type)
-            error = (model_price - market_price) ** 2
-            errors.append(error)
-
-        return np.sum(errors)
