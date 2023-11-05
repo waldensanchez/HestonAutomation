@@ -61,7 +61,7 @@ class Heston():
         spot_price = stock.iloc[-1]
 
         self.spot_price = spot_price
-        self.yearly_historical_volatility = stock_std
+        self.yearly_historical_volatility = stock_std * np.sqrt(252)
         
         # From Data
         self.strike_price = self.clean['Serie'].values
@@ -71,33 +71,33 @@ class Heston():
         self.option_type = self.clean['Call o Put'].apply(lambda call: True if call == 1 else False)
     
     def optimize_params(self):
-        # Optimized parameters
-        optimized_params = []
+        # Optimized parameters list
+        optimized_params_list = []
 
         # Define bounds for the parameters
-        bounds = [(0, 1), (0.1, 15), (0, 1), (0.1, 1), (-1, 1)]
+        bounds = [(0, 15), (0.1, 15), (0, 15), (0, 15), (-1, 1)]
 
         # Initial guess for the parameters based on historical volatility
         initial_params = [self.yearly_historical_volatility ** 2, 2.0, 0.04, 0.1, -0.7]  # Initial parameter guess
         
         for market_price, strike, maturity, risk_free_rate, option_type in zip(self.market_price, self.strike_price, self.maturities, self.risk_free_rate, self.option_type):
+            # Objective function adapted for the single derivative
+            def objective_function(params):
+                return objective_function_single_derivative(params, market_price, strike, maturity, risk_free_rate, option_type, self.spot_price, self.current_date)
+
             # The basinhopping algorithm
             minimizer_kwargs = {"method": "L-BFGS-B", "bounds": bounds}
-
-            # Objective function adapted for the single derivative
-            def objective_function(params, market_price, strike, maturity, risk_free_rate, option_type):
-                return objective_function_single_derivative(params, market_price, strike, maturity, risk_free_rate, option_type)
-
-            result = basinhopping(objective_function, initial_params, minimizer_kwargs=minimizer_kwargs, niter=10)
+            result = basinhopping(objective_function, initial_params, minimizer_kwargs=minimizer_kwargs)
 
             # Results
-            optimized_params = result.x
-            optimized_params.append(optimized_params)
+            op_params = result.x
+            optimized_params_list.append(op_params)
             minimum_error = result.fun
             
-            print('CME: ',minimum_error)
+            print('CME: ', minimum_error)
+            print(op_params)
         
-        self.optimized = optimized_params
+        self.optimized_params = optimized_params_list
     
     def reporting(self):
         pass
@@ -105,18 +105,20 @@ class Heston():
     def sensibility(self):
         pass
 
-def objective_function_single_derivative(self,params, market_price, strike, maturity, risk_free_rate, option_type):
-        v0, kappa, theta, epsilon, rho = params
-
-        model_price = HestonPriceFunction(strike, self.spot_price, np.sqrt(v0), risk_free_rate, kappa,
-                                        epsilon, rho, theta, self.current_date, maturity, option_type)
-        error = (model_price - market_price) ** 2
-        return error
+def objective_function_single_derivative(params, market_price, strike, maturity, risk_free_rate, option_type, spot_price, current_date):
+    v0, kappa, theta, epsilon, rho = params
+    # Assuming HestonPriceFunction is defined elsewhere and working properly
+    model_price = HestonPriceFunction(strike, spot_price, np.sqrt(v0), risk_free_rate, kappa, epsilon, rho, theta, current_date, maturity, option_type)
+    error = (model_price - market_price) ** 2
+    return error
 
 def HestonPriceFunction(strike_price: float, spot_price: float, yearly_historical_volatility: float, 
                         risk_free_rate: float, kappa: float, epsilon: float, rho: float,
                         theta: float, current_date: datetime, time_to_maturity: float, call_option: bool, 
                         dividend_rate: float = 0.0, step: float = 0.001, runs: int = 1000):
+
+    strike_price = strike_price / 1000
+    spot_price = spot_price / 1000
 
     # Parameters
     variance = yearly_historical_volatility ** 2  # Initial variance is square of volatility
@@ -127,12 +129,22 @@ def HestonPriceFunction(strike_price: float, spot_price: float, yearly_historica
     calendar = ql.Mexico()
 
     # Calculate Maturity Date based on time to maturity
-    maturity_date = current_date + pd.Timedelta(days=365.25 * time_to_maturity)
+    maturity_date = current_date + timedelta(days=365.25 * time_to_maturity)
+
+    # Current Date
+    current_day = int(current_date.day[0])
+    current_month = int(current_date.month[0])
+    current_year = int(current_date.year[0])
+
+    # Maturity Date
+    maturity_day = int(maturity_date.day[0])
+    maturity_month = int(maturity_date.month[0])
+    maturity_year = int(maturity_date.year[0])
     
     # QuantLib uses Date objects
-    valuation_date = ql.Date(current_date.day, current_date.month, current_date.year)
+    valuation_date = ql.Date(current_day, current_month, current_year)
     valuation_date = calendar.adjust(valuation_date)  # Adjust to the nearest business day in the calendar
-    maturity_ql_date = ql.Date(maturity_date.day, maturity_date.month, maturity_date.year)
+    maturity_ql_date = ql.Date(maturity_day, maturity_month, maturity_year)
     maturity_ql_date = calendar.adjust(maturity_ql_date)  # Adjust to the nearest business day in the calendar
     ql.Settings.instance().evaluationDate = valuation_date
 
@@ -145,17 +157,21 @@ def HestonPriceFunction(strike_price: float, spot_price: float, yearly_historica
 
     # Setting up flat risk-free and dividend yield curves
     day_count = ql.Actual365Fixed()
-    risk_free_curve = ql.YieldTermStructureHandle(ql.FlatForward(valuation_date, risk_free_rate, day_count, calendar))
-    dividend_yield = ql.YieldTermStructureHandle(ql.FlatForward(valuation_date, dividend_rate, day_count, calendar))
+    risk_free_curve = ql.YieldTermStructureHandle(ql.FlatForward(valuation_date, risk_free_rate, day_count))
+    dividend_yield = ql.YieldTermStructureHandle(ql.FlatForward(valuation_date, dividend_rate, day_count))
 
     # Setting up the Heston process and model
-    heston_process = ql.HestonProcess(risk_free_curve, dividend_yield, initial_value, variance, kappa, theta, epsilon, rho)
-    heston_model = ql.HestonModel(heston_process)
-    
-    # Engine for pricing
-    engine = ql.AnalyticHestonEngine(heston_model, step, runs)
-    option.setPricingEngine(engine)
+    try:
+        heston_process = ql.HestonProcess(risk_free_curve, dividend_yield, initial_value, variance, kappa, theta, epsilon, rho)
+        heston_model = ql.HestonModel(heston_process)
+        
+        # Engine for pricing
+        engine = ql.AnalyticHestonEngine(heston_model, step, runs)
+        option.setPricingEngine(engine)
 
-    # Calculating the option price
-    price = option.NPV()
+        # Calculating the option price
+        price = option.NPV()
+    except:
+        print('Invalid parameters')
+        price = 0
     return price
