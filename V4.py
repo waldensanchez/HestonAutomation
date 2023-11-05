@@ -1,5 +1,6 @@
 import QuantLib as ql
 import pandas as pd
+import numpy as np
 from scipy.optimize import minimize
 
 def get_metrics(results):
@@ -12,8 +13,8 @@ def get_metrics(results):
     performance_metrics = reliability.merge(error, left_index = True, right_index = True).sort_values(by = 'MSE')
     return performance_metrics
 
-def HestonParameters(spot_price, strike_price, market_price, dividend_yield, traditional_implied_volatility, calculation_date, maturity_date, risk_free_rate=0.00525, call_option=True):
-    print(strike_price)
+def HestonParameters(spot_price, strike_price, market_price, dividend_yield, traditional_implied_volatility, calculation_date, maturity_date, ttm, risk_free_rate=0.00525, call_option=True, verbose = False):
+    
     day_count = ql.Actual365Fixed()
     calendar = ql.UnitedStates(ql.UnitedStates.NYSE)
 
@@ -76,6 +77,8 @@ def HestonParameters(spot_price, strike_price, market_price, dividend_yield, tra
         'Optimizer': ['TNC' if success else 'L-BFGS-B'],
         'Success': [success],
         'Params': [params],
+        'Strike': [strike_price],
+        'TTM': [ttm],
         'Objective_Value': [objective_value],
         'Estimated_Price': [estimated_price],
         'Market_Price': [market_price if success else None],
@@ -83,5 +86,63 @@ def HestonParameters(spot_price, strike_price, market_price, dividend_yield, tra
     })
 
     # Print the DataFrame
-    print('Optimizer', 'TNC' if success else 'L-BFGS-B', 'Estimated Price:', estimated_price, 'Market Price:', market_price)
+    if verbose:
+        print('Optimizer', 'TNC' if success else 'L-BFGS-B', 'Estimated Price:', estimated_price, 'Market Price:', market_price)
     return results_df
+
+
+
+def expected_variance(v0, kappa, theta, t):
+    """
+    Calculate the expected variance under the Heston model at time t.
+
+    Parameters:
+    v0 : float
+        Initial variance.
+    kappa : float
+        Rate of reversion.
+    theta : float
+        Long-term mean variance.
+    t : float
+        Time at which to calculate the expected variance.
+
+    Returns:
+    float
+        The expected variance at time t.
+    """
+    return theta + (v0 - theta) * np.exp(-kappa * t)
+
+
+def calculate_expected_variance_over_strikes(results_df):
+    """
+    Calculate the expected variance over different strike prices using the estimated parameters.
+    Now it uses the 'TTM' column from the results_df to find the time to maturity.
+
+    Parameters:
+    results_df : DataFrame
+        DataFrame containing the estimated parameters from HestonParameters function.
+
+    Returns:
+    DataFrame
+        A DataFrame with strike prices as the index and expected variances as values.
+    """
+    # Extract the parameters from the DataFrame
+    params_df = results_df[['Params', 'TTM']].copy()
+    params_df[['v0', 'kappa', 'theta', 'sigma', 'rho']] = pd.DataFrame(params_df['Params'].tolist(), index=params_df.index)
+    params_df.drop(columns='Params', inplace=True)
+
+    # Calculate the expected variance for each row in the DataFrame using the 'TTM' column
+    params_df['Expected_Variance'] = params_df.apply(lambda row: expected_variance(row['v0'], row['kappa'], row['theta'], row['TTM']), axis=1)
+
+    # Create a new DataFrame with strike prices and expected variances
+    expected_variance_df = pd.DataFrame({
+        'Strike_Price': results_df['Strike'],
+        'Expected_Variance': params_df['Expected_Variance']
+    }).set_index('Strike_Price')
+
+    return expected_variance_df
+
+# Example usage:
+# Assuming the results_df is defined and it includes a 'TTM' column after running the HestonParameters function
+
+
