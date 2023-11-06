@@ -1,4 +1,5 @@
 from scipy.optimize import minimize
+import yfinance as yf
 import matplotlib.pyplot as plt
 import QuantLib as ql
 import pandas as pd
@@ -110,22 +111,14 @@ def expected_variance(v0, kappa, theta, t):
 
 
 def calculate_expected_variance_over_strikes(results_df):
-    # Extract the parameters from the DataFrame
-    params_df = results_df[['Params', 'TTM']].copy()
-    params_df[['v0', 'kappa', 'theta', 'sigma', 'rho']] = pd.DataFrame(params_df['Params'].tolist(), index=params_df.index)
-    params_df.drop(columns='Params', inplace=True)
-    params_df = params_df.fillna(0)
-    
-    # Calculate the expected variance for each row in the DataFrame using the 'TTM' column
-    params_df['Expected_Variance'] = params_df.apply(lambda row: expected_variance(row['v0'], row['kappa'], row['theta'], row['TTM']), axis=1)
-
-    # Create a new DataFrame with strike prices and expected variances
-    expected_variance_df = pd.DataFrame({
-        'Strike_Price': results_df['Strike'],
-        'Expected_Variance': params_df['Expected_Variance']
-    }).set_index('Strike_Price')
-
-    return expected_variance_df
+    results_df[['v0', 'kappa', 'theta', 'sigma', 'rho']] = pd.DataFrame(results_df['Params'].tolist(), index=results_df.index)
+    results_df.drop(columns='Params', inplace=True)
+    results_df = results_df.fillna(0)
+    results_df.drop(columns = ['Optimizer','Success','Objective_Value','MSE'], inplace = True)
+    results_df['Expected_Variance'] = results_df.apply(lambda row: expected_variance(row['v0'], row['kappa'], row['theta'], row['TTM']), axis=1)
+    results_df = results_df[['Strike','v0','kappa','theta','sigma','rho','Estimated_Price','Market_Price','TTM','Expected_Variance']]
+    results_df = results_df.rename( columns = {'Estimated_Price':'Theorical_Price','Expected_Variance':'Implied_Volatility'} )
+    return results_df
 
 def plot_ajusted_poli(options, expected_variance_df):
     strike_price = expected_variance_df.index.values
@@ -155,7 +148,30 @@ def to_ql_dates(date):
     return ql.Date(date.day, date.month, date.year)
 
 def simple_plot(results):
-    expected_variance_df = calculate_expected_variance_over_strikes(results)
-    expected_variance_df.plot()
+    results[['Strike','Implied_Volatility']].set_index('Strike').plot()
+    plt.title('Volatility Smile')
     plt.show()
 
+def get_prices_with_fill(ticker_symbol, start_date, maturity_date):
+    # Download prices from yfinance
+    prices = yf.download(ticker_symbol, start=start_date, end=maturity_date, progress=False)['Adj Close']
+
+    # Create a date range for all days
+    all_dates = pd.date_range(start=start_date, end=maturity_date, freq='D')
+
+    # Reindex the prices DataFrame to include all dates in the date range
+    prices = prices.reindex(all_dates)
+
+    # Forward-fill the NaN values with the last available price
+    prices.ffill(inplace=True)
+
+    # If the price data is missing at the beginning, backfill to ensure all dates have a price
+    prices.bfill(inplace=True)
+
+    # Reset the index to turn the date index into a column
+    prices = prices.reset_index()
+
+    # Rename the columns to match the expected output
+    prices.columns = ['Date', 'Price']
+
+    return prices
