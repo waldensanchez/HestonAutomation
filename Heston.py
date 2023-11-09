@@ -1,4 +1,5 @@
 from scipy.optimize import minimize
+import matplotlib.pyplot as plt
 import yfinance as yf
 import matplotlib.pyplot as plt
 import QuantLib as ql
@@ -96,6 +97,7 @@ def HestonParameters(spot_price, strike_price, market_price, dividend_yield, ini
         'Params': [params],
         'Strike': [strike_price],
         'TTM': [ttm],
+        'Maturity': [maturity_date],
         'Objective_Value': [objective_value],
         'Estimated_Price': [estimated_price],
         'Market_Price': [market_price if success else None],
@@ -116,7 +118,7 @@ def calculate_expected_variance_over_strikes(results_df):
     results_df = results_df.fillna(0)
     results_df.drop(columns = ['Optimizer','Success','Objective_Value','MSE'], inplace = True)
     results_df['Expected_Variance'] = results_df.apply(lambda row: expected_variance(row['v0'], row['kappa'], row['theta'], row['TTM']), axis=1)
-    results_df = results_df[['Strike','v0','kappa','theta','sigma','rho','Estimated_Price','Market_Price','TTM','Expected_Variance']]
+    results_df = results_df[['Strike','v0','kappa','theta','sigma','rho','Estimated_Price','Market_Price','TTM','Maturity','Expected_Variance']]
     results_df = results_df.rename( columns = {'Estimated_Price':'Theorical_Price','Expected_Variance':'Implied_Volatility'} )
     return results_df
 
@@ -148,7 +150,8 @@ def to_ql_dates(date):
     return ql.Date(date.day, date.month, date.year)
 
 def simple_plot(results):
-    results[['Strike','Implied_Volatility']].set_index('Strike').plot()
+    #results[['Strike','Implied_Volatility']].set_index('Strike')
+    plt.scatter(results.Strike,results.Implied_Volatility)
     plt.title('Volatility Smile')
     plt.show()
 

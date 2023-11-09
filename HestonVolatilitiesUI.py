@@ -7,29 +7,31 @@ import warnings
 class HestonModule():
     def __init__(self, ticker):
         self.ticker_symbol = ticker
-        ticker_data = yf.Ticker(self.ticker_symbol)
-        options_expirations = ticker_data.options
-        self.expiration_date = options_expirations[2]
-        self.options_chain = ticker_data.option_chain(self.expiration_date)
+        self.ticker_data = yf.Ticker(self.ticker_symbol)
+        self.expiration_date = self.ticker_data.options
+        #self.options_chain = ticker_data.option_chain(self.expiration_date)
 
     def get_dividend(self, dividend):
         self.dividend = dividend
-
+    
     def opt_type(self, call_or_put):
-        if call_or_put == 'Call':
-            option = self.options_chain.calls
-            self.call_option = True
-        elif call_or_put == 'Put':
-            option = self.options_chain.puts
-            self.call_option = False
-        option = option.dropna()
-        option = option[option['volume']  > 10]
-        option['Maturity'] = self.expiration_date
-        option['Maturity'] = pd.to_datetime(option['Maturity'])
-        option['lastTradeDate'] = pd.to_datetime(option['lastTradeDate']).dt.tz_localize(None)
-        option['TTM'] = (pd.to_datetime(option['Maturity']) - option['lastTradeDate']).dt.days / 365.0
-        self.option = option
-        return self.option
+        options = []
+        for expiration in self.expiration_date:
+            options_chain = self.ticker_data.option_chain(expiration)
+            if call_or_put == 'Call':
+                option = options_chain.calls
+                self.call_option = True
+            elif call_or_put == 'Put':
+                option = options_chain.puts
+                self.call_option = False
+            option = option.dropna()
+            option = option[option['volume']  > 10]
+            option['Maturity'] = expiration
+            option['Maturity'] = pd.to_datetime(option['Maturity'])
+            option['lastTradeDate'] = pd.to_datetime(option['lastTradeDate']).dt.tz_localize(None)
+            option['TTM'] = (pd.to_datetime(option['Maturity']) - option['lastTradeDate']).dt.days / 365.0
+            options.append(option)
+            self.option = pd.concat(options, axis=0, ignore_index=True)
 
     def get_results(self):
         trade_dates = self.option['lastTradeDate']
@@ -77,8 +79,6 @@ class HestonModule():
         option = option.merge(prices, left_on='lastTradeDate', right_on='Date', how='left').drop('Date', axis=1).rename(columns={'Adj Close': 'Price'})
         option['lastTradeDate'] = option['lastTradeDate'].apply(to_ql_dates)
         option['Maturity'] = option['Maturity'].apply(to_ql_dates)
-        
-        # ... rest of the processing and Heston parameter calculations
         
         sim_until_maturity = pd.DataFrame()
 
