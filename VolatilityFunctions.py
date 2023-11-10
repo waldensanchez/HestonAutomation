@@ -1,12 +1,11 @@
 from scipy.optimize import minimize
-import matplotlib.pyplot as plt
+
 import yfinance as yf
-import matplotlib.pyplot as plt
 import QuantLib as ql
 import pandas as pd
 import numpy as np
 
-def HestonParameters(spot_price, strike_price, market_price, dividend_yield, initial_params, calculation_date, maturity_date, ttm, risk_free_rate=0.00525, call_option=True, verbose = False):
+def HestonParametersVolatility(spot_price, strike_price, market_price, dividend_yield, initial_params, calculation_date, maturity_date, ttm, risk_free_rate=0.00525, call_option=True, verbose = False):
     
     day_count = ql.Actual365Fixed()
     calendar = ql.UnitedStates(ql.UnitedStates.NYSE)
@@ -111,7 +110,6 @@ def HestonParameters(spot_price, strike_price, market_price, dividend_yield, ini
 def expected_variance(v0, kappa, theta, t):
     return theta + (v0 - theta) * np.exp(-kappa * t)
 
-
 def calculate_expected_variance_over_strikes(results_df):
     results_df[['v0', 'kappa', 'theta', 'sigma', 'rho']] = pd.DataFrame(results_df['Params'].tolist(), index=results_df.index)
     results_df.drop(columns='Params', inplace=True)
@@ -149,32 +147,4 @@ def to_ql_dates(date):
     date = pd.to_datetime(date)
     return ql.Date(date.day, date.month, date.year)
 
-def simple_plot(results):
-    #results[['Strike','Implied_Volatility']].set_index('Strike')
-    plt.scatter(results.Strike,results.Implied_Volatility)
-    plt.title('Volatility Smile')
-    plt.show()
 
-def get_prices_with_fill(ticker_symbol, start_date, maturity_date):
-    # Download prices from yfinance
-    prices = yf.download(ticker_symbol, start=start_date, end=maturity_date, progress=False)['Adj Close']
-
-    # Create a date range for all days
-    all_dates = pd.date_range(start=start_date, end=maturity_date, freq='D')
-
-    # Reindex the prices DataFrame to include all dates in the date range
-    prices = prices.reindex(all_dates)
-
-    # Forward-fill the NaN values with the last available price
-    prices.ffill(inplace=True)
-
-    # If the price data is missing at the beginning, backfill to ensure all dates have a price
-    prices.bfill(inplace=True)
-
-    # Reset the index to turn the date index into a column
-    prices = prices.reset_index()
-
-    # Rename the columns to match the expected output
-    prices.columns = ['Date', 'Price']
-
-    return prices
