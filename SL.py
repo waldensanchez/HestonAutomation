@@ -36,7 +36,7 @@ with tab3:
         bar.progress(100)
 
         st.subheader('Volatilidad Implícita')
-        tab1, tab2= st.tabs(["Tabla", " 📈"])
+        tab1, tab2= st.tabs(["🧮", " 📈"])
         with tab1:
             st.dataframe(data=HestonVolatility.table, hide_index=True)
         with tab2:
@@ -62,18 +62,26 @@ with tab4:
     HestonPrices.get_prices(strike_price, spot_price)
     HestonPrices.get_dates(calculation_date=calculation_date, maturity_date=maturity_date)
     with st.expander("Personalizar parámetros"):
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
-            v0 = st.number_input(f'$V_0$', value=None, placeholder=f'$Óptimo$')
+            v0 = st.number_input(f'$V_0$', value=None, placeholder=f'Óptimo')
         with col2:
-            theta = st.number_input(f'$\Theta$', value=None, placeholder=f"$Óptimo$")
+            theta = st.number_input(f'$\Theta$', value=None, placeholder=f"Óptimo")
         with col3:
-            epsilon = st.number_input(f'$\epsilon$', value=None, placeholder=f"$Óptimo")
+            kappa = st.number_input(f'$\kappa$', value=None, placeholder=f"Óptimo")
         with col4:
-            rho = st.number_input(f'$\Rho$', value=None, placeholder=f"$Óptimo$")
+            epsilon = st.number_input(f'$\sigma$', value=None, placeholder=f"Óptimo")
+        with col5:
+            rho = st.number_input(f'$\Rho$', value=None, placeholder=f"Óptimo")
 
     if st.button('Calcular precio', use_container_width=True):   
-        HestonPrices.parameter_optimizer(.1,.1,.1,.1,.1)
-        HestonPrices.calculate_heston_pricing()
+        HestonPrices.parameter_optimizer()
+        HestonPrices.black_scholes_pricing(call_or_put)
+        HestonPrices.calculate_heston_pricing(call_or_put)
         st.write('Precio con Heston:', HestonPrices.heston_price)
-
+        st.write('Precio con Black-Scholes:', HestonPrices.black_scholes)
+    
+    sensibility = st.toggle('Análisis de sensibilidad')
+    if sensibility:
+        with st.container():
+            st.pyplot(HestonPrices.senibility_analysis(call_or_put) , use_container_width=True)
