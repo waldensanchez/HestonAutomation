@@ -81,3 +81,5 @@ class HestonPrice():
                         self.maturity_date, self.spot_price,
                             self.strike_price, call_option=True)
             self.heston_price = option_price
+
+    
